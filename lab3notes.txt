@@ -1,0 +1,129 @@
+Lab 3 write file system driver
+
+typedef struct ospfs_inode {
+    uint32_t oi_size;
+    <blank> oi_ftype;
+    <blank> oi_nlink;
+    <blank> oi_mode;
+    <blank> oi_direct[OSPFS_NDIRECT];
+    <blank> oi_indirect;
+    <blank> oi_indirect2;
+} ospfs_inode_t;
+
+typedef strct ospfs_direntry {
+    uint32_t od_ino;
+    char od_name[OSPFS_MAXNAMELEN+1];
+} ospfs_direntry_t;
+
+typedef struct ospfs_super {
+    uint32_t os_magic; //verifies that the disk is uncorrupted
+    <blank> os_nblocks;
+    <blank> os_ninodes;
+    <blank> os_firstinode;
+} ospfs_super_t; 
+
+
+-Lab 3: write 9 operations for the OS 
+
+ospfs_read ( args ) {
+    //loads inode from disk to ramdisk 
+    ospfs_inode_t* o = ospfs_inode(filp->f_dentry -> d_inode->i_ino);
+    
+    //make sure we don't read past the end of the file 
+    
+    //copy data to uesr block by block
+    while (amound < count && retval > = 0) {
+        //get block number
+        unint32_t blockno = ospfs_inode_blockno(oi,*f_pos);
+        unint32_t n;
+        char* data;
+        uint32_t data_offset;
+        uint32_t bytes_left_to_copy = count - amount;
+        if (blockno == 0)
+        {
+            retval = -EIO;
+            goto done;
+        }
+        
+        //get block
+        data = ospfs_block(blockno); 
+        data_offset = *f_pos % OSPFS_BLKSIZE; 
+        
+        m = OSPFS_BLKSIZE - data_offset; 
+        
+        //if we don't want to read the entire specified amount, set the amount to read to bytes_left_to_copy
+        if (m > bytes_left_to_copy)
+            m = bytes_left_to_copy; 
+        
+        buffer += m;
+        amount += m;
+        *f_pos += m;
+    }
+     
+    
+    //read from block bitmap and look for next available block
+    allocate_block (void) {
+        void* freemap = ospfs_block(OSPFS_FREEMAP_BLK);
+        uint32_t i;
+        for (i=OSPFS_FREEMAP_BLK; i < ospfs_super->os_nblocks; i ++)
+        {
+            if (bitvector_test(freemap,i) {
+                bitvector_clear(freemap,i);
+                return i; 
+            }
+        }
+        
+        return 0; 
+    }
+    
+    //clear block(trivial)
+    
+    //support for reading directories 
+    static int ospfs_dir_readdir(struct file* filp, void* dirent, filldir_t filldir)
+    {
+        /* skeleton code here 
+                              */
+        while (r == 0 && ok_so_far >= 0 && f_pos >= 2)
+        {
+            ospfs_direntry_t *od;
+            ospfs_inode_t *entry_oi; 
+            
+            curr_file_byte_offset = (f_pos - 2)* OSPFS_DIRENTRY_SIZE;
+            if (curr_file_byte_offset >= dir_oi->oi_sie)
+            {   
+                r = 1;
+                break;
+            }
+            
+            od = ospfs_inode_data(dir_oi,cur_file_byte_offset); //read directory entry at that offset
+            entry_oi = ospfs_inode(od->od_ino); //get the inode of the directory entry
+            
+            if ( entry_oi == NULL || od->od_ino == 0) //blank directory entry
+            {
+                f_pos++;
+                continue;
+            }
+            
+            switch (entry_oi -> oi_ftype)
+            {
+                case OSPFS_FTYPE_REG:
+                    file_type = DT_REG;
+                    break;
+                case OSPFS_FTYPE_DIR:
+                    file_type = DT_DIR;
+                    break;
+                case OSPFS_FTYPE_SYMLINK:
+                    file_type = DT_LINK;
+                    break;
+                default: 
+                    r = 1; 
+                    continue; 
+                    break; //make the compiler happy
+             }
+             
+             ok_so_far = filldir(dirent,od->od_name,strlen(od->od_name),f_pos,od->od_ino,file_type);
+             f_pos++; 
+        }
+          
+        
+    
