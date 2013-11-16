@@ -89,6 +89,7 @@ static struct inode_operations ospfs_symlink_inode_ops;
 static struct dentry_operations ospfs_dentry_ops;
 static struct super_operations ospfs_superblock_ops;
 
+
 /*****************************************************************************
  * BITVECTOR OPERATIONS
  *
