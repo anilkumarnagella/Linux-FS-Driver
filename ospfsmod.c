@@ -512,13 +512,13 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
         switch (entry_oi -> oi_ftype)
         {
            case OSPFS_FTYPE_REG:
-					file_type = OSPFS_FTYPE_REG;
+					file_type = DT_REG;
                     break;
            case OSPFS_FTYPE_DIR:
-                    file_type = OSPFS_FTYPE_DIR;
+                    file_type = DT_DIR;
                     break;
            case OSPFS_FTYPE_SYMLINK:
-                    file_type = OSPFS_FTYPE_SYMLINK;
+                    file_type = DT_LNK;
                     break;
            default: 
                     r = 1; 
