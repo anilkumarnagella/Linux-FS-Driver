@@ -461,40 +461,73 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
 		if (ok_so_far >= 0)
 			f_pos++;
 	}
-
-	// actual entries
+	
+	size_t fbyte_offset; 
+	/* Get a pointer to the next entry (od) in the directory.
+	 * The file system interprets the contents of a
+	 * directory-file as a sequence of ospfs_direntry structures.
+	 * You will find 'f_pos' and 'ospfs_inode_data' useful.
+	 *
+	 * Then use the fields of that file to fill in the directory
+	 * entry.  To figure out whether a file is a regular file or
+	 * another directory, use 'ospfs_inode' to get the directory
+	 * entry's corresponding inode, and check out its 'oi_ftype'
+	 * member.
+	 *
+	 * Make sure you ignore blank directory entries!  (Which have
+	 * an inode number of 0.)
+	 *
+	 * If the current entry is successfully read (the call to
+	 * filldir returns >= 0), or the current entry is skipped,
+	 * your function should advance f_pos by the proper amount to
+	 * advance to the next directory entry.
+	 */
 	while (r == 0 && ok_so_far >= 0 && f_pos >= 2) {
 		ospfs_direntry_t *od;
 		ospfs_inode_t *entry_oi;
-
-		/* If at the end of the directory, set 'r' to 1 and exit
-		 * the loop.  For now we do this all the time.
-		 *
-		 * EXERCISE: Your code here */
-		r = 1;		/* Fix me! */
-		break;		/* Fix me! */
-
-		/* Get a pointer to the next entry (od) in the directory.
-		 * The file system interprets the contents of a
-		 * directory-file as a sequence of ospfs_direntry structures.
-		 * You will find 'f_pos' and 'ospfs_inode_data' useful.
-		 *
-		 * Then use the fields of that file to fill in the directory
-		 * entry.  To figure out whether a file is a regular file or
-		 * another directory, use 'ospfs_inode' to get the directory
-		 * entry's corresponding inode, and check out its 'oi_ftype'
-		 * member.
-		 *
-		 * Make sure you ignore blank directory entries!  (Which have
-		 * an inode number of 0.)
-		 *
-		 * If the current entry is successfully read (the call to
-		 * filldir returns >= 0), or the current entry is skipped,
-		 * your function should advance f_pos by the proper amount to
-		 * advance to the next directory entry.
-		 */
-
-		/* EXERCISE: Your code here */
+		
+		//update byte offset 
+		fbyte_offset = (f_pos - 2)* OSPFS_DIRENTRY_SIZE;
+        if (fbyte_offset >= dir_oi->oi_size)
+        {   
+            r = 1;
+            break;
+        }
+            
+        //read directory entry at that offset    
+        od = ospfs_inode_data(dir_oi,fbyte_offset);
+        
+        //get the inode of the directory entry
+        entry_oi = ospfs_inode(od->od_ino); 
+        
+        //go to next entry if blank directory entry    
+        if ( entry_oi == NULL || od->od_ino == 0) 
+        {
+            f_pos++;
+            continue;
+        }
+        
+        //set file type     
+        switch (entry_oi -> oi_ftype)
+        {
+           case OSPFS_FTYPE_REG:
+					file_type = DT_REG;
+                    break;
+           case OSPFS_FTYPE_DIR:
+                    file_type = DT_DIR;
+                    break;
+           case OSPFS_FTYPE_SYMLINK:
+                    file_type = DT_LINK;
+                    break;
+           default: 
+                    r = 1; 
+                    continue; 
+                    break; //make the compiler happy
+         }
+         
+         //send info and increment f_pos     
+         ok_so_far = filldir(dirent,od->od_name,strlen(od->od_name),f_pos,od->od_ino,file_type);
+         f_pos++; 
 	}
 
 	// Save the file position and return!
@@ -644,7 +677,10 @@ static int32_t
 indir2_index(uint32_t b)
 {
 	// Your code here.
-	return -1;
+	if ( b >= (OSPFS_NDIRECT + OSPFS_NINDIRECT))
+		return 0; 
+	else
+		return -1;
 }
 
 
@@ -662,9 +698,13 @@ indir2_index(uint32_t b)
 static int32_t
 indir_index(uint32_t b)
 {
-	// Your code here.
-	return -1;
-}
+	if (b < OSPFS_NDIRECT)
+		return -1;
+	else if (b < (OSPFS_NDIRECT + OSPFS_NINDIRECT))
+		return 0;
+	else 
+		return ((b - (OSPFS_NDIRECT + OSPFS_NINDIRECT)) / OSPFS_NINDIRECT); 
+}	
 
 
 // int32_t indir_index(uint32_t b)
