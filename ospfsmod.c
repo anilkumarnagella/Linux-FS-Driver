@@ -89,24 +89,7 @@ static struct inode_operations ospfs_symlink_inode_ops;
 static struct dentry_operations ospfs_dentry_ops;
 static struct super_operations ospfs_superblock_ops;
 
-/*
 
-LOCAL FUNTIONS
-*/
-static inline uint32_t find_free_inode(void)
-{
-	uint32_t inode_no;
-	ospfs_inode_t *new_inode_loc;
-	for (inode_no = 2; inode_no < ospfs_super->os_ninodes; inode_no++)
-	{
-		new_inode_loc = ospfs_inode(inode_no);	
-		if (new_inode_loc->oi_nlink == 0)
-		{
-			return inode_no;
-		}
-	}
-	return 0;
-}
 /*****************************************************************************
  * BITVECTOR OPERATIONS
  *
@@ -141,7 +124,22 @@ bitvector_test(const void *vector, int i)
 /*****************************************************************************
  * OSPFS HELPER FUNCTIONS
  */
-
+/*
+static inline uint32_t find_free_inode(void)
+{
+	uint32_t inode_no;
+	ospfs_inode_t *new_inode_loc;
+	for (inode_no = 2; inode_no < ospfs_super->os_ninodes; inode_no++)
+	{
+		new_inode_loc = ospfs_inode(inode_no);	
+		if (new_inode_loc->oi_nlink == 0)
+		{
+			return inode_no;
+		}
+	}
+	return 0;
+}
+*/ 
 // ospfs_size2nblocks(size)
 //	Returns the number of blocks required to hold 'size' bytes of data.
 //
@@ -601,8 +599,21 @@ ospfs_unlink(struct inode *dirino, struct dentry *dentry)
 static uint32_t
 allocate_block(void)
 {
-	/* EXERCISE: Your code here */
-	return 0;
+	uint32_t block_no;
+    uint32_t rval = 0;
+    void *free_block_bitmask = ospfs_block(OSPFS_FREEMAP_BLK);
+    for (block_no = OSPFS_FREEMAP_BLK;
+         block_no < ospfs_super->os_nblocks;
+         ++block_no)
+    {
+        if (bitvector_test(free_block_bitmask, block_no) == 1)
+        {
+            rval = block_no;
+            break;
+        }
+    }
+    
+	return rval;
 }
 
 
@@ -618,9 +629,13 @@ allocate_block(void)
 //   bitmap, and inode blocks must never be freed.  But this is not required.)
 
 static void
-free_block(uint32_t blockno)
+free_block(uint32_t block_no)
 {
-	/* EXERCISE: Your code here */
+    if (block_no > OSPFS_FREEMAP_BLK && block_no < ospfs_super->os_nblocks)
+    {
+        void *free_block_bitmask = ospfs_block(OSPFS_FREEMAP_BLK);
+        bitvector_clear(free_block_bitmask, block_no);
+    }
 }
 
 
