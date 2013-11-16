@@ -507,17 +507,18 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
             continue;
         }
         
-        //set file type     
+        //set file type
+        uint32_t file_type;     
         switch (entry_oi -> oi_ftype)
         {
            case OSPFS_FTYPE_REG:
-					file_type = DT_REG;
+					file_type = OSPFS_FTYPE_REG;
                     break;
            case OSPFS_FTYPE_DIR:
-                    file_type = DT_DIR;
+                    file_type = OSPFS_FTYPE_DIR;
                     break;
            case OSPFS_FTYPE_SYMLINK:
-                    file_type = DT_LINK;
+                    file_type = OSPFS_FTYPE_SYMLINK;
                     break;
            default: 
                     r = 1; 
@@ -604,21 +605,19 @@ ospfs_unlink(struct inode *dirino, struct dentry *dentry)
 static uint32_t
 allocate_block(void)
 {
-	uint32_t block_no;
-    uint32_t rval = 0;
-    void *free_block_bitmask = ospfs_block(OSPFS_FREEMAP_BLK);
-    for (block_no = OSPFS_FREEMAP_BLK;
-         block_no < ospfs_super->os_nblocks;
-         ++block_no)
+    void* freemap = ospfs_block(OSPFS_FREEMAP_BLK);
+    uint32_t block_no, rval = 0;
+    for (block_no = OSPFS_FREEMAP_BLK; block_no < ospfs_super->os_nblocks; block_no ++)
     {
-        if (bitvector_test(free_block_bitmask, block_no) == 1)
+        if (bitvector_test(freemap,block_no))
         {
-            rval = block_no;
+            bitvector_clear(freemap,block_no);
+            rval = block_no; 
             break;
         }
     }
-    
-	return rval;
+        
+    return rval; 
 }
 
 
@@ -638,8 +637,8 @@ free_block(uint32_t block_no)
 {
     if (block_no > OSPFS_FREEMAP_BLK && block_no < ospfs_super->os_nblocks)
     {
-        void *free_block_bitmask = ospfs_block(OSPFS_FREEMAP_BLK);
-        bitvector_clear(free_block_bitmask, block_no);
+        void *freemap = ospfs_block(OSPFS_FREEMAP_BLK);
+        bitvector_set(freemap, block_no);
     }
 }
 
@@ -927,7 +926,8 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
 		char *data;
-
+        uint32_t data_offset;
+        uint32_t bytes_left_to_copy = count - amount;
 		// ospfs_inode_blockno returns 0 on error
 		if (blockno == 0) {
 			retval = -EIO;
@@ -940,13 +940,27 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 		// Copy data into user space. Return -EFAULT if unable to write
 		// into user space.
 		// Use variable 'n' to track number of bytes moved.
-		/* EXERCISE: Your code here */
-		retval = -EIO; // Replace these lines
-		goto done;
-
-		buffer += n;
-		amount += n;
-		*f_pos += n;
+        data = ospfs_block(blockno); 
+        data_offset = *f_pos % OSPFS_BLKSIZE; 
+        
+        n = OSPFS_BLKSIZE - data_offset; 
+        
+        // if we don't want to read the entire specified amount, set the amount
+        // to read to bytes_left_to_copy
+        if (n > bytes_left_to_copy)
+        {
+            n = bytes_left_to_copy; 
+        }
+        bytes_left_to_copy = copy_to_user(buffer, data, n);
+        // we could not copy ANY data into user space    
+        if (bytes_left_to_copy == n)
+        {
+            retval = -EFAULT;
+            goto done;
+        }
+        buffer += n;
+        amount += n;
+        *f_pos += n;
 	}
 
     done:
