@@ -812,7 +812,7 @@ add_block(ospfs_inode_t *oi)
 			return -EIO; 
 				
 		uint32_t* ind_block_ptr = (uint32_t*) ospfs_block(oi->oi_indirect);
-		uint32_t direct = direct_index[n]; 
+		uint32_t direct = direct_index(n); 
 		
 		//allocate a direct block
 		if ((ind_block_ptr[direct] = allocate_block()) == 0)
@@ -831,7 +831,7 @@ add_block(ospfs_inode_t *oi)
 	
 	//case 3: place somewhere in doubly indirect block(3 allocations possible)  
 	else if (indir2_index(n) == 0) 
-	{`
+	{
 		//if the new block will be the first direct block of the first indirect
 		//block, we must allocate the doubly indirect block 
 		if (indir_index(n) == 0 && direct_index(n) == 0)
@@ -997,7 +997,7 @@ remove_block(ospfs_inode_t *oi)
 		//free indirect block if this was the first direct block 
 		if (direct_i == 0)
 		{
-			free_block(ind_node);
+			free_block(ind_block);
 			doubly_ptr[ind_i] = 0;
 		}
 		
@@ -1011,7 +1011,7 @@ remove_block(ospfs_inode_t *oi)
 	}
 	
 	//update size 
-    oi->size -= OSPFS_BLKSIZE;
+    oi->oi_size -= OSPFS_BLKSIZE;
     return 0; 
 }
 
