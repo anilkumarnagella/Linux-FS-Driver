@@ -45,15 +45,15 @@ fs.img: ospfsformat Makefile $(BASEFILES)
 	./ospfsformat -l hello.txt:link -c $@ 4096 128 -r base
 
 ospfsformat: ospfsformat.c md5.c ospfs.h md5.h
-	$(CC) -g -c md5.c -o md5.o
-	$(CC) -g -c ospfsformat.c -o ospfsformat.o
-	$(CC) -g md5.o ospfsformat.o -o $@
+	$(CC) -std=gnu99 -g -c md5.c -o md5.o
+	$(CC) -std=gnu99 -g -c ospfsformat.c -o ospfsformat.o
+	$(CC) -std=gnu99 -g md5.o ospfsformat.o -o $@
 
 fsimgtoc: fsimgtoc.c
-	$(CC) $< -o $@
+	$(CC) -std=gnu99 $< -o $@
 
 truncate: truncate.c
-	$(CC) $< -o $@
+	$(CC) -std=gnu99 $< -o $@
 
 DISTDIR := lab3-$(USER)
 ifeq ($(SOL),1)

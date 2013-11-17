@@ -994,7 +994,10 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 
 	// Support files opened with the O_APPEND flag.  To detect O_APPEND,
 	// use struct file's f_flags field and the O_APPEND bit.
-	/* EXERCISE: Your code here */
+	if (filp->f_flags & O_APPEND)
+    {
+        f_pos = filp->f_pos;
+    }
 
 	// If the user is writing past the end of the file, change the file's
 	// size to accomodate the request.  (Use change_size().)
@@ -1148,8 +1151,7 @@ create_blank_direntry(ospfs_inode_t *dir_oi)
 //                           Two of these values are already set.  One must be
 //                           set by you, which one?
 //   Returns: 0 on success, -(error code) on error.  In particular:
-//               -ENAMETOOLONG if dst_dentry->d_name.len is too large, or
-//			       'symname' is too long;
+//               -ENAMETOOLONG if dst_dentry->d_name.len is too large
 //               -EEXIST       if a file named the same as 'dst_dentry' already
 //                             exists in the given 'dir';
 //               -ENOSPC       if the disk is full & the file can't be created;
@@ -1225,7 +1227,6 @@ ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dent
 static int
 ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd)
 {
-	
     //1. Check for -FEXISTS error and check if directory is empty
 	ospfs_inode_t * dir_oi = ospfs_inode(dir->i_ino);
 	if (dir_oi->oi_ftype != OSPFS_FTYPE_DIR)
@@ -1306,10 +1307,46 @@ static int
 ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 {
 	ospfs_inode_t *dir_oi = ospfs_inode(dir->i_ino);
+    ospfs_symlink_inode_t *symlnk_oi =
+		(ospfs_symlink_inode_t *) ospfs_inode(dentry->d_inode->i_ino);
 	uint32_t entry_ino = 0;
-
-	/* EXERCISE: Your code here. */
-	return -EINVAL;
+    ospfs_direntry_t *new_entry;
+    //1. Check for -FEXISTS error and check if directory is empty
+	if (dir_oi->oi_ftype != OSPFS_FTYPE_DIR)
+	{
+		return -EIO;
+	}
+	if (dentry->d_name.len > OSPFS_MAXNAMELEN || 
+        strlen(symname) > OSPFS_MAXSYMLINKLEN )
+	{
+		return -ENAMETOOLONG;
+	} 
+	if (find_dir_entry(dir_oi, dentry->d_name.name, dentry->d_name.len) != NULL)
+	{
+		return -EEXIST;
+	}
+    //2. Find an empty inode. set 'entry_ino' variable to its node #
+	entry_ino = find_free_inode();
+	
+    if (entry_ino == 0)
+	{
+		return -ENOSPC;
+	}
+    new_entry = create_blank_direntry(dir_oi);
+	if (IS_ERR(new_entry))
+	{
+		return PTR_ERR(new_entry); // defined in create_blank_direntry
+	}
+    else if (new_entry == NULL)
+	{
+		return -EIO;
+	}
+	new_entry->od_ino = entry_ino;
+	memcpy(new_entry->od_name, dentry->d_name.name, dentry->d_name.len);
+	new_entry->od_name[dentry->d_name.len] = '\0';
+    
+    //3. Set up the symlink
+	strcpy(symlnk_oi->oi_symlink, symname);
 
 	/* Execute this code after your function has successfully created the
 	   file.  Set entry_ino to the created file's inode number before
