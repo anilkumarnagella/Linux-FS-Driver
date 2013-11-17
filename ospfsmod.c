@@ -170,6 +170,15 @@ ospfs_block(uint32_t blockno)
 	return &ospfs_data[blockno * OSPFS_BLKSIZE];
 }
 
+// ospfs_zero_out_block(blockno)
+// Zeroes out the ospfs block pointed to by blockno
+// Input: blockno -- block number
+
+static void 
+ospfs_zero_out_block(uint32_t blockno)
+{
+	memset(ospfs_block(blockno),0,OSPFS_BLKSIZE);
+}
 
 // ospfs_inode(ino)
 //	Use this function to load a 'ospfs_inode' structure from "disk".
@@ -719,7 +728,10 @@ static int32_t
 direct_index(uint32_t b)
 {
 	// Your code here.
-	return -1;
+	if (b < OSPFS_NDIRECT)
+		return b; 
+	else 
+		return ((b - OSPFS_NDIRECT) % OSPFS_NINDIRECT);
 }
 
 
@@ -759,12 +771,133 @@ add_block(ospfs_inode_t *oi)
 {
 	// current number of blocks in file
 	uint32_t n = ospfs_size2nblocks(oi->oi_size);
-
+	
+	//return -ENOSPC if we can't give this file anymore blocks
+	if (n == OSPFS_MAXFILEBLKS) 
+		return -ENOSPC; 
+		
 	// keep track of allocations to free in case of -ENOSPC
 	uint32_t *allocated[2] = { 0, 0 };
 
-	/* EXERCISE: Your code here */
-	return -EIO; // Replace this line
+	// 3 cases:
+	// 1. block will be placed in the inode's direct block array
+	// 2. block will be placed in the inode's first indirect block
+	// 3. block will be placed somewhere in the inode's doubly indirect block 
+	
+	//case 1: place in direct block array(1 allocation)
+	if (indir_index(n) == -1)
+	{ 
+		if ((oi->oi_direct[n] = allocate_block()) == 0)
+			return -ENOSPC; 
+		
+		ospfs_zero_out_block(oi->oi_direct[n]);   
+	}
+	
+	//case 2: place in first indirect block(possibly 2 allocations)
+	else if (indir2_index(n) == -1)
+	{
+		//if the new block will be the first direct block in the indirect block
+		//we must first allocate a block for the indirect block
+		if (direct_index(n) == 0)
+		{
+			if ((oi->oi_indirect = allocate_block()) == 0)
+				return -ENOSPC;
+			
+			allocated[0] = &(oi->oi_indirect); 
+			ospfs_zero_out_block(oi->oi_indirect); 
+		}  
+		
+		//get a pointer to the indirect block
+		if (oi->oi_direct == 0)
+			return -EIO; 
+				
+		uint32_t* ind_block_ptr = (uint32_t*) ospfs_block(oi->oi_indirect);
+		uint32_t direct = direct_index[n]; 
+		
+		//allocate a direct block
+		if ((ind_block_ptr[direct] = allocate_block()) == 0)
+		{	
+			if (allocated[0])
+			{
+				free_block(*(allocated[0]));
+				*(allocated[0]) = 0; 
+			}
+			
+			return -ENOSPC; 
+		}
+		
+		ospfs_zero_out_block(ind_block_ptr[direct]); 
+	} 
+	
+	//case 3: place somewhere in doubly indirect block(3 allocations possible)  
+	else if (indir2_index(n) == 0) 
+	{`
+		//if the new block will be the first direct block of the first indirect
+		//block, we must allocate the doubly indirect block 
+		if (indir_index(n) == 0 && direct_index(n) == 0)
+		{
+			if ((oi->oi_indirect2 = allocate_block()) == 0)
+				return -ENOSPC;
+			
+			ospfs_zero_out_block(oi->oi_indirect2);
+			allocated[0] = oi->oi_indirect2; 
+		}
+		
+		//generate a pointer to the double indirect block	
+		if (oi->oi_indirect2 == 0)
+			return -EIO; 	
+		uint32_t* double_block_ptr = (uint32_t*) ospfs_block(oi->oi_indirect2);
+		uint32_t ind = indir_index(n);
+		
+		//if the new direct block is going to be the first block in an indirect block
+		//we need to allocate a new indirect block first 
+		if (direct_index(n) == 0)
+		{  
+			if ((double_block_ptr[ind] = allocate_block()) == 0)
+			{ 
+				if(allocated[0])
+				{
+					free_block(*allocated[0]);
+					*allocated[0] = 0; 
+				}
+				
+				return -ENOSPC;
+			}
+			
+			ospfs_zero_out_block(double_block_ptr[ind]);
+			
+			//save allocated indirect block in case of future failure
+			allocated[1] = &double_block_ptr[ind]; 
+		}
+		
+		uint32_t ind_block = double_block_ptr[ind];
+		if (ind_block == 0)
+			return -EIO; 
+		uint32_t* ind_block_ptr = ospfs_block(ind_block);
+		uint32_t direct = direct_index(n); 
+		
+		//allocate direct block
+		if ((ind_block_ptr[direct] = allocate_block()) == 0)
+		{
+			if (allocated[0])
+			{
+				free_block(*(allocated[0]));
+				*(allocated[0]) = 0; 
+			}
+			if (allocated[1])
+			{
+				free_block(*(allocated[1])); 
+				*(allocated[1]) = 0; 
+			}
+			return -ENOSPC; 
+		}
+		
+		ospfs_zero_out_block(ind_block_ptr[direct]); 			
+	}
+	 
+	//update inode size and return 0
+	oi -> oi_size += OSPFS_BLKSIZE; 
+	return 0;
 }
 
 
@@ -795,9 +928,91 @@ remove_block(ospfs_inode_t *oi)
 {
 	// current number of blocks in file
 	uint32_t n = ospfs_size2nblocks(oi->oi_size);
-
-	/* EXERCISE: Your code here */
-	return -EIO; // Replace this line
+	
+	//can't remove a block if there are no blocks  
+	if (n == 0)
+		return -EIO; 
+		
+	// 3 cases:
+	// 1. block is in inode direct block array
+	// 2. block is in first indirect block
+	// 3. block resides somewhere in doubly indirect block 
+	
+	uint32_t i = n-1; 
+	uint32_t direct_i = direct_index(i);
+	uint32_t ind2_i = indir2_index(i);
+	uint32_t ind_i = indir_index(i); 
+	
+	//case 1. 
+	if (ind_i == -1)
+	{
+		if (oi->oi_direct[i] == 0)
+			return -EIO; 
+			
+		free_block(oi->oi_direct[i]); 
+		oi->oi_direct[i] = 0;  
+	}
+	//case 2. 
+	else if (ind2_i == -1)
+	{
+		if (oi->oi_indirect == 0)
+			return -EIO; 
+		uint32_t* ind_ptr = (uint32_t*) ospfs_block(oi->oi_indirect); 
+		if (ind_ptr[direct_i] == 0)
+			return -EIO; 
+		
+		free_block(ind_ptr[direct_i]);
+		ind_ptr[direct_i] = 0; 
+		
+		//if the direct index of the block we're deleting was 0, we must
+		//also delete the indirect block 
+		if(direct_i == 0)
+		{
+			free_block(oi->oi_indirect);
+			oi->oi_indirect = 0; 
+		}
+	}
+	//case 3.
+	else if (ind2_i == 0)
+	{
+		if (oi->oi_indirect2 == 0)
+			return -EIO;
+		
+		uint32_t* doubly_ptr = (uint32_t*) ospfs_block(oi->oi_indirect2); 
+		uint32_t ind_block = doubly_ptr[ind_i]; 
+		
+		if (ind_block == 0)
+			return -EIO;
+		
+		uint32_t* ind_ptr = (uint32_t*) ospfs_block(ind_block); 
+		uint32_t dir_block = ind_ptr[direct_i]; 
+		
+		if(dir_block == 0)
+			return -EIO; 
+		
+		//free direct block
+		free_block(dir_block);
+		ind_ptr[direct_i] = 0; 
+		
+		//free indirect block if this was the first direct block 
+		if (direct_i == 0)
+		{
+			free_block(ind_node);
+			doubly_ptr[ind_i] = 0;
+		}
+		
+		//free doubly indirect block if this was the first block in the
+		//first indirect block 
+		if (direct_i == 0 && ind_i == 0)
+		{
+			free_block(oi->oi_indirect2); 
+			oi->oi_indirect2 = 0; 
+		}
+	}
+	
+	//update size 
+    oi->size -= OSPFS_BLKSIZE;
+    return 0; 
 }
 
 
