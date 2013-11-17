@@ -843,18 +843,14 @@ change_size(ospfs_inode_t *oi, uint32_t new_size)
 	uint32_t old_size = oi->oi_size;
 	int r = 0;
 
-	while (ospfs_size2nblocks(oi->oi_size) < ospfs_size2nblocks(new_size)) {
-	        /* EXERCISE: Your code here */
-		return -EIO; // Replace this line
+	while (r >= 0 && ospfs_size2nblocks(oi->oi_size) < ospfs_size2nblocks(new_size)) {
+        r = add_block(oi);
 	}
-	while (ospfs_size2nblocks(oi->oi_size) > ospfs_size2nblocks(new_size)) {
-	        /* EXERCISE: Your code here */
-		return -EIO; // Replace this line
+	while (r >= 0 && ospfs_size2nblocks(oi->oi_size) > ospfs_size2nblocks(new_size)) {
+        r = remove_block(oi);
 	}
-
-	/* EXERCISE: Make sure you update necessary file meta data
-	             and return the proper value. */
-	return -EIO; // Replace this line
+    oi->oi_size = 0 == r ? new_size : old_size;
+	return r; 
 }
 
 
@@ -916,11 +912,14 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 	ospfs_inode_t *oi = ospfs_inode(filp->f_dentry->d_inode->i_ino);
 	int retval = 0;
 	size_t amount = 0;
-
+    if (oi->oi_size < *f_pos + count)
+    {
+        count = oi->oi_size - *f_pos;
+    }
 	// Make sure we don't read past the end of the file!
 	// Change 'count' so we never read past the end of the file.
 	/* EXERCISE: Your code here */
-
+    
 	// Copy the data to user block by block
 	while (amount < count && retval >= 0) {
 		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
@@ -931,6 +930,7 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 		// ospfs_inode_blockno returns 0 on error
 		if (blockno == 0) {
 			retval = -EIO;
+            eprintk("ospfs_inode_blockno returned error for %d", blockno);
 			goto done;
 		}
 
@@ -940,7 +940,6 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 		// Copy data into user space. Return -EFAULT if unable to write
 		// into user space.
 		// Use variable 'n' to track number of bytes moved.
-        data = ospfs_block(blockno); 
         data_offset = *f_pos % OSPFS_BLKSIZE; 
         
         n = OSPFS_BLKSIZE - data_offset; 
@@ -956,6 +955,7 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
         if (bytes_left_to_copy == n)
         {
             retval = -EFAULT;
+            eprintk("copy to user messed up");           
             goto done;
         }
         buffer += n;
@@ -964,6 +964,7 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 	}
 
     done:
+    printk("read a ok");
 	return (retval >= 0 ? amount : retval);
 }
 
@@ -998,17 +999,22 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
     {
         f_pos = filp->f_pos;
     }
-
 	// If the user is writing past the end of the file, change the file's
 	// size to accomodate the request.  (Use change_size().)
-	/* EXERCISE: Your code here */
+	/* EXERCISE: Your code here */    
+    if ( oi-> oi_size < *f_pos + count)
+    {
+        change_size(oi, *f_pos + count);
+    }
 
 	// Copy data block by block
 	while (amount < count && retval >= 0) {
-		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
+        uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
 		char *data;
-
+        uint32_t data_offset;
+        uint32_t bytes_left_to_copy = count - amount;
+		// ospfs_inode_blockno returns 0 on error
 		if (blockno == 0) {
 			retval = -EIO;
 			goto done;
@@ -1021,8 +1027,27 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 		// read user space.
 		// Keep track of the number of bytes moved in 'n'.
 		/* EXERCISE: Your code here */
-		retval = -EIO; // Replace these lines
-		goto done;
+        // Figure out how much data is left in this block to read.     
+        data_offset = *f_pos % OSPFS_BLKSIZE; 
+        
+        n = OSPFS_BLKSIZE - data_offset; 
+        
+        // if we don't want to read the entire specified amount, set the amount
+        // to read to bytes_left_to_copy
+        if (n > bytes_left_to_copy)
+        {
+            n = bytes_left_to_copy; 
+        }
+        bytes_left_to_copy = copy_from_user(data, buffer, n);
+        // we could not copy ANY data into user space    
+        if (bytes_left_to_copy == n)
+        {
+            retval = -EFAULT;
+            goto done;
+        }
+        buffer += n;
+        amount += n;
+        *f_pos += n;
 
 		buffer += n;
 		amount += n;
@@ -1259,7 +1284,7 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidat
 	file_oi->oi_nlink = 1;
 	file_oi->oi_mode = mode;
 	// Create a free directory entry
-	ospfs_direntry_t * new_entry = create_blank_direntry(dir_oi); // Not yet implemented
+	ospfs_direntry_t * new_entry = create_blank_direntry(dir_oi);
 	if (IS_ERR(new_entry))
 	{
 		return PTR_ERR(new_entry); // defined in create_blank_direntry
@@ -1333,6 +1358,7 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 		return -ENOSPC;
 	}
     new_entry = create_blank_direntry(dir_oi);
+    
 	if (IS_ERR(new_entry))
 	{
 		return PTR_ERR(new_entry); // defined in create_blank_direntry
@@ -1342,12 +1368,13 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 		return -EIO;
 	}
 	new_entry->od_ino = entry_ino;
+
 	memcpy(new_entry->od_name, dentry->d_name.name, dentry->d_name.len);
 	new_entry->od_name[dentry->d_name.len] = '\0';
     
     //3. Set up the symlink
 	strcpy(symlnk_oi->oi_symlink, symname);
-
+    symlnk_oi->oi_ftype = OSPFS_FTYPE_SYMLINK;
 	/* Execute this code after your function has successfully created the
 	   file.  Set entry_ino to the created file's inode number before
 	   getting here. */
@@ -1377,11 +1404,21 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 static void *
 ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
-	ospfs_symlink_inode_t *oi =
+	ospfs_symlink_inode_t *symlnk_oi =
 		(ospfs_symlink_inode_t *) ospfs_inode(dentry->d_inode->i_ino);
-	// Exercise: Your code here.
 
-	nd_set_link(nd, oi->oi_symlink);
+    char * symlnk_dst = symlnk_oi->oi_symlink;
+    if (symlnk_oi->oi_ftype != OSPFS_FTYPE_SYMLINK)
+    {
+        return (void *)-EIO;
+    }
+    // check if it is a conditional symlnk
+    if ('?' == symlnk_dst[0])
+    {
+        size_t len_true_case = strlen(symlnk_dst) + 1;        
+        symlnk_dst += current->uid == 0 ? 1 : len_true_case + 1;
+    }
+	nd_set_link(nd, symlnk_dst);
 	return (void *) 0;
 }
 
