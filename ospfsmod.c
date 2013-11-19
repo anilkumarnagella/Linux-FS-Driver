@@ -530,7 +530,7 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
                     file_type = DT_LNK;
                     break;
            default: 
-                    r = 1; 
+                    r = -1; 
                     continue; 
                     break; //make the compiler happy
          }
