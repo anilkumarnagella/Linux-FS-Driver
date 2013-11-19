@@ -91,6 +91,63 @@ close FOO;
       '15'
     ],
 
+    # create a symbolic link
+    # 18
+    [ 'echo this is foo > test/foo; ' .
+      'ln -s foo test/sym && ' .
+      'diff test/sym test/foo && ' .
+      'rm test/sym test/foo',
+      ''
+    ],
+
+    # create a symbolic link and change the file it points to
+    # 19
+    [ 'echo this is foo > test/foo; ' .
+      'ln -s foo test/sym && ' .
+      'rm test/foo && ' .
+      'echo this is now bar > test/foo && ' .
+      'cat test/sym && rm test/sym test/foo' ,
+      'this is now bar'
+    ],
+
+    # check that a symlink is being interpreted relative to the working path
+    # 20
+    [ 'echo this is foo > test/foo; ' .
+      'ln -s foo test/sym && ' .
+      'ln -s message.txt test/subdir/sym && ' .
+      'diff <( cat test/foo ) test/sym && ' .
+      'diff <( cat test/subdir/message.txt) test/subdir/sym; ' .
+      'cd test/subdir; ' .
+      'diff <( cat ../foo ) ../sym && ' .
+      'diff <( cat message.txt) sym; ' .
+      'cd ../..; ' .
+      'rm test/sym test/subdir/sym test/foo',
+      ''
+    ],
+
+    # check conditional symlnk
+    # 21
+    [ 'cd test; '.
+      'echo Root > root.txt; ' .
+      'echo Not root > not_root.txt; ' .
+      'chmod 777 not_root.txt; ' .
+      'ln -s root?root.txt:not_root.txt amiroot && ' .
+      'cat amiroot && ' .
+      'su user -c "cat amiroot"; ' .
+      'rm root.txt not_root.txt amiroot; ' .
+      'cd ..',
+      "Root Not root"
+    ],
+
+    # another check that symlinks work relative to current path
+    # 22
+    [ 'echo this is foo > test/foo; ' .
+      'ln -s ../foo test/subdir/sym && ' .
+      'diff test/foo test/subdir/sym && ' .
+      'rm test/subdir/sym test/foo',
+      ''
+    ]
+
 );
 
 my($ntest) = 0;
