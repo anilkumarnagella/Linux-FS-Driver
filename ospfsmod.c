@@ -1207,14 +1207,15 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 	// use struct file's f_flags field and the O_APPEND bit.
 	/* EXERCISE: Your code here */
         if(filp->f_flags & O_APPEND)
-          *f_pos = oi->oi_size;                                               //****why not oi->size+1
+          *f_pos = oi->oi_size;                                               
+          
 	// If the user is writing past the end of the file, change the file's
 	// size to accomodate the request.  (Use change_size().)
 	/* EXERCISE: Your code here */
         if(*f_pos + count >= oi->oi_size){
-          new_size = (ospfs_size2nblocks(oi->oi_size) + 1) * OSPFS_BLKSIZE;
+          new_size = *f_pos + count;  
           retval = change_size(oi, new_size);
-          if(retval != 0)
+          if(retval < 0)
             return ERR_PTR(retval);
           oi->oi_size = new_size; 
         }
@@ -1223,8 +1224,8 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 	while (amount < count && retval >= 0) {
 		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
-                uint32_t bytes_left = count - amount;
-                uint32_t offset;
+        uint32_t bytes_left = count - amount;
+        uint32_t offset;
 		char *data;
 
 		if (blockno == 0) {
@@ -1238,15 +1239,15 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 		// Copy data from user space. Return -EFAULT if unable to read
 		// read user space.
 		// Keep track of the number of bytes moved in 'n'.
-		/* EXERCISE: Your code here */
-                offset = *f_pos % OSPFS_BLKSIZE;
-                n = OSPFS_BLKSIZE - offset;
-                if(n > bytes_left){
-                  n = bytes_left;
-                }
-
-                if(copy_from_user(data + offset, buffer, n) != 0)
-                  return -EFAULT;
+		
+        offset = *f_pos % OSPFS_BLKSIZE;
+        n = OSPFS_BLKSIZE - offset;
+        if(n > bytes_left){
+        n = bytes_left;
+        }
+        
+        if(copy_from_user(data + offset, buffer, n) != 0)
+            return -EFAULT;
 
 		buffer += n;
 		amount += n;
