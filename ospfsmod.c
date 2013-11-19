@@ -1050,37 +1050,31 @@ static int
 change_size(ospfs_inode_t *oi, uint32_t new_size)
 {
 	uint32_t old_size = oi->oi_size;
-	uint32_t final_size = (old_size > new_size ? new_size : old_size);
-	int r = 0;
-	
-	if (ospfs_size2nblocks(old_size) == ospfs_size2nblocks(new_size))
+	int r1 = 0;
+	int r2 = 0; 
+	uint32_t nblocks_new = ospfs_size2nblocks(new_size);
+	uint32_t nblocks_old = ospfs_size2nblocks(old_size);
+
+	//case for increasing size 
+	for(; nblocks_old < nblocks_new; nblocks_old++)
 	{
-		oi->oi_size = new_size;
-		return r; 
+		if ((r1 = add_block(oi)) < 0)
+		{ 
+			nblocks_new = ospfs_size2nblocks(old_size);
+			nblocks_old = ospfs_size2nblocks(oi->oi_size);
+			break;
+		}  
 	}
 	
-	while (ospfs_size2nblocks(oi->oi_size) < ospfs_size2nblocks(new_size)) {
-		r = add_block(oi);
-
-		// If no space is left, reset the file back to the old size
-		// The second loop will take care of this if we modify new_size
-		if(r == -ENOSPC)
-		{
-			new_size = old_size;
-			break;
-		}
-
-		if(r == -EIO)
-			return -EIO;
+	//case for decreasing size
+	for(; nblocks_old > nblocks_new; nblocks_old--)
+	{
+		if ((r2 = remove_block(oi)) < 0)
+			break; 
 	}
-	while (ospfs_size2nblocks(oi->oi_size) > ospfs_size2nblocks(new_size)) {
-		if(remove_block(oi) == -EIO)
-			return -EIO;
-	}
-
-	// Reset the size back to what it was if the file grew, or down to what it shrank to
-	oi->oi_size = final_size;
-	return r;
+	 
+	oi->oi_size = (r1 || r2) ? old_size : new_size;
+	return (r1 ? r1 : r2);
 }
 
 // ospfs_notify_change
