@@ -1052,7 +1052,13 @@ change_size(ospfs_inode_t *oi, uint32_t new_size)
 	uint32_t old_size = oi->oi_size;
 	uint32_t final_size = (old_size > new_size ? new_size : old_size);
 	int r = 0;
-
+	
+	if (ospfs_size2nblocks(old_size) == ospfs_size2nblocks(new_size))
+	{
+		oi->oi_size = new_size;
+		return r; 
+	}
+	
 	while (ospfs_size2nblocks(oi->oi_size) < ospfs_size2nblocks(new_size)) {
 		r = add_block(oi);
 
@@ -1147,8 +1153,8 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 	while (amount < count && retval >= 0) {
 		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
-                uint32_t bytes_left = count - amount;
-                uint32_t offset;
+        uint32_t bytes_left = count - amount;
+        uint32_t offset;
 		char *data;
 
 		// ospfs_inode_blockno returns 0 on error
@@ -1157,16 +1163,16 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 			goto done;
 		}
                
-                //gets data from block 
+        //gets data from block 
 		data = ospfs_block(blockno);
 
-                offset = *f_pos % OSPFS_BLKSIZE;
-                n = OSPFS_BLKSIZE - offset;
-                if(n > bytes_left)
-                  n = bytes_left;
-                if(copy_to_user(buffer, data + offset, n) != 0){
-                  return -EFAULT;
-                }
+        offset = *f_pos % OSPFS_BLKSIZE;
+        n = OSPFS_BLKSIZE - offset;
+        if(n > bytes_left)
+			n = bytes_left;
+        if(copy_to_user(buffer, data + offset, n) != 0){
+             return -EFAULT;
+        }
      
 		buffer += n;
 		amount += n;
@@ -1201,7 +1207,7 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 	ospfs_inode_t *oi = ospfs_inode(filp->f_dentry->d_inode->i_ino);
 	int retval = 0;
 	size_t amount = 0;
-        uint32_t new_size = 0;
+    uint32_t new_size = 0;
 
 	// Support files opened with the O_APPEND flag.  To detect O_APPEND,
 	// use struct file's f_flags field and the O_APPEND bit.
