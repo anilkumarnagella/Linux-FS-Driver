@@ -530,7 +530,7 @@ ospfs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
                     file_type = DT_LNK;
                     break;
            default: 
-                    r = 1; 
+                    r = -1; 
                     continue; 
                     break; //make the compiler happy
          }
@@ -684,7 +684,6 @@ free_block(uint32_t block_no)
 static int32_t
 indir2_index(uint32_t b)
 {
-	// Your code here.
 	if ( b >= (OSPFS_NDIRECT + OSPFS_NINDIRECT))
 		return 0; 
 	else
@@ -787,6 +786,8 @@ add_block(ospfs_inode_t *oi)
 	//case 1: place in direct block array(1 allocation)
 	if (indir_index(n) == -1)
 	{ 
+		if (oi->oi_direct[n] != 0)
+			return -EIO; 
 		if ((oi->oi_direct[n] = allocate_block()) == 0)
 			return -ENOSPC; 
 		
@@ -800,6 +801,8 @@ add_block(ospfs_inode_t *oi)
 		//we must first allocate a block for the indirect block
 		if (direct_index(n) == 0)
 		{
+			if (oi->oi_indirect != 0)
+				return -EIO; 
 			if ((oi->oi_indirect = allocate_block()) == 0)
 				return -ENOSPC;
 			
@@ -808,13 +811,23 @@ add_block(ospfs_inode_t *oi)
 		}  
 		
 		//get a pointer to the indirect block
-		if (oi->oi_direct == 0)
+		if (oi->oi_indirect == 0)
 			return -EIO; 
 				
 		uint32_t* ind_block_ptr = (uint32_t*) ospfs_block(oi->oi_indirect);
 		uint32_t direct = direct_index(n); 
 		
 		//allocate a direct block
+		if (ind_block_ptr[direct] != 0)
+		{
+			if (allocated[0])
+			{
+				free_block(*(allocated[0]));
+				*(allocated[0]) = 0;
+			}
+
+			return -EIO; 
+		}
 		if ((ind_block_ptr[direct] = allocate_block()) == 0)
 		{	
 			if (allocated[0])
@@ -836,6 +849,9 @@ add_block(ospfs_inode_t *oi)
 		//block, we must allocate the doubly indirect block 
 		if (indir_index(n) == 0 && direct_index(n) == 0)
 		{
+			if (oi->oi_indirect2 != 0)
+				return -EIO; 
+
 			if ((oi->oi_indirect2 = allocate_block()) == 0)
 				return -ENOSPC;
 			
@@ -853,6 +869,15 @@ add_block(ospfs_inode_t *oi)
 		//we need to allocate a new indirect block first 
 		if (direct_index(n) == 0)
 		{  
+			if (double_block_ptr[ind] != 0)
+			{
+				if (allocated[0])
+				{
+					free_block(*allocated[0]);
+					*allocated[0] = 0; 
+				}
+				return -EIO; 
+			}
 			if ((double_block_ptr[ind] = allocate_block()) == 0)
 			{ 
 				if(allocated[0])
@@ -873,7 +898,7 @@ add_block(ospfs_inode_t *oi)
 		uint32_t ind_block = double_block_ptr[ind];
 		if (ind_block == 0)
 			return -EIO; 
-		uint32_t* ind_block_ptr = ospfs_block(ind_block);
+		uint32_t* ind_block_ptr = (uint32_t*) ospfs_block(ind_block);
 		uint32_t direct = direct_index(n); 
 		
 		//allocate direct block
@@ -938,6 +963,7 @@ remove_block(ospfs_inode_t *oi)
 	// 2. block is in first indirect block
 	// 3. block resides somewhere in doubly indirect block 
 	
+	//i == blocknumber for last block in oi 
 	uint32_t i = n-1; 
 	uint32_t direct_i = direct_index(i);
 	uint32_t ind2_i = indir2_index(i);
