@@ -616,7 +616,9 @@ allocate_block(void)
 {
     void* freemap = ospfs_block(OSPFS_FREEMAP_BLK);
     uint32_t block_no, rval = 0;
-    for (block_no = OSPFS_FREEMAP_BLK; block_no < ospfs_super->os_nblocks; block_no ++)
+    for (block_no = OSPFS_FREEMAP_BLK;
+         block_no < ospfs_super->os_nblocks;
+         block_no++)
     {
         if (bitvector_test(freemap,block_no))
         {
@@ -625,10 +627,8 @@ allocate_block(void)
             break;
         }
     }
-        
     return rval; 
 }
-
 
 // free_block(blockno)
 //	Use this function to free an allocated block.
@@ -642,26 +642,16 @@ allocate_block(void)
 //   bitmap, and inode blocks must never be freed.  But this is not required.)
 
 static void
-free_block(uint32_t block_no)
+free_block(uint32_t blockno)
 {
-    if (block_no > OSPFS_FREEMAP_BLK && block_no < ospfs_super->os_nblocks)
-    {
-        void *freemap = ospfs_block(OSPFS_FREEMAP_BLK);
-        bitvector_set(freemap, block_no);
-    }
+	/* EXERCISE: Your code here */
+        //int inode_boundary = ospfs_super->os_ninode + ospfs_super->os_firstinob;
+        //if(blockno < OSPFS_FREEMAP_BLK || (blockno >= OSPFS_FREEMAP_BLK && blockno < inode_boundary)
+
+        void* bitmap = ospfs_block(OSPFS_FREEMAP_BLK);
+        bitvector_set(bitmap, blockno);
+        //IS THERE ANYTHING ELSE TO DO?????
 }
-
-
-/*****************************************************************************
- * FILE OPERATIONS
- *
- * EXERCISE: Finish off change_size, read, and write.
- *
- * The find_*, add_block, and remove_block functions are only there to support
- * the change_size function.  If you prefer to code change_size a different
- * way, then you may not need these functions.
- *
- */
 
 // The following functions are used in our code to unpack a block number into
 // its consituent pieces: the doubly indirect block number (if any), the
@@ -684,11 +674,10 @@ free_block(uint32_t block_no)
 static int32_t
 indir2_index(uint32_t b)
 {
-	// Your code here.
-	if ( b >= (OSPFS_NDIRECT + OSPFS_NINDIRECT))
-		return 0; 
-	else
+	if(b < OSPFS_NDIRECT + OSPFS_NINDIRECT)
 		return -1;
+
+	return 0;
 }
 
 
@@ -706,13 +695,19 @@ indir2_index(uint32_t b)
 static int32_t
 indir_index(uint32_t b)
 {
-	if (b < OSPFS_NDIRECT)
+	// Check if the block is contained directly in the inode
+	if(b < OSPFS_NDIRECT)
 		return -1;
-	else if (b < (OSPFS_NDIRECT + OSPFS_NINDIRECT))
+
+	// If indir2_index reports -1 we don't need the doubly indirect block
+	// and the file block is contained in the indirect block
+	if(indir2_index(b) == -1)
 		return 0;
-	else 
-		return ((b - (OSPFS_NDIRECT + OSPFS_NINDIRECT)) / OSPFS_NINDIRECT); 
-}	
+
+	// Otherwise we have to utilize the doubly indirect block
+	b -= OSPFS_NDIRECT + OSPFS_NINDIRECT;
+	return b / OSPFS_NINDIRECT;
+}
 
 
 // int32_t indir_index(uint32_t b)
@@ -727,13 +722,12 @@ indir_index(uint32_t b)
 static int32_t
 direct_index(uint32_t b)
 {
-	// Your code here.
-	if (b < OSPFS_NDIRECT)
-		return b; 
-	else 
-		return ((b - OSPFS_NDIRECT) % OSPFS_NINDIRECT);
-}
+	if(b < OSPFS_NDIRECT)
+		return b;
 
+	b -= OSPFS_NDIRECT;
+	return b % OSPFS_NINDIRECT;
+}
 
 // add_block(ospfs_inode_t *oi)
 //   Adds a single data block to a file, adding indirect and
@@ -771,133 +765,135 @@ add_block(ospfs_inode_t *oi)
 {
 	// current number of blocks in file
 	uint32_t n = ospfs_size2nblocks(oi->oi_size);
-	
-	//return -ENOSPC if we can't give this file anymore blocks
-	if (n == OSPFS_MAXFILEBLKS) 
-		return -ENOSPC; 
-		
-	// keep track of allocations to free in case of -ENOSPC
-	uint32_t *allocated[2] = { 0, 0 };
 
-	// 3 cases:
-	// 1. block will be placed in the inode's direct block array
-	// 2. block will be placed in the inode's first indirect block
-	// 3. block will be placed somewhere in the inode's doubly indirect block 
-	
-	//case 1: place in direct block array(1 allocation)
-	if (indir_index(n) == -1)
-	{ 
-		if ((oi->oi_direct[n] = allocate_block()) == 0)
-			return -ENOSPC; 
-		
-		ospfs_zero_out_block(oi->oi_direct[n]);   
-	}
-	
-	//case 2: place in first indirect block(possibly 2 allocations)
-	else if (indir2_index(n) == -1)
+	// keep track of allocations to free in case of -ENOSPC
+	uint32_t allocated[2] = { 0, 0 };
+
+	int32_t index_indir2;
+	int32_t index_indir;
+	int32_t index_direct;
+
+	uint32_t indir_block = 0;
+	uint32_t double_indir_block = 0;
+
+	uint32_t *indir_data = NULL;
+	uint32_t *double_indir_data = NULL;
+
+	const int INDIR_2_BLOCK = 0;
+	const int INDIR_BLOCK = 1;
+	int r = -ENOSPC;
+
+	/* COMPLETED EXERCISE: Your code here */
+
+	if(n == OSPFS_MAXFILEBLKS)
+		return -ENOSPC;
+
+	// If the file size is zero and we already
+	// have an allocated block, allocate the next block (add one)
+	if(oi->oi_size == 0 && oi->oi_direct[0] != 0)
+		n = 1;
+
+	index_indir2 = indir2_index(n);
+	index_indir  = indir_index(n);
+	index_direct = direct_index(n);
+
+	if(index_indir == -1) // We can store the new block directly in the inode
 	{
-		//if the new block will be the first direct block in the indirect block
-		//we must first allocate a block for the indirect block
-		if (direct_index(n) == 0)
-		{
-			if ((oi->oi_indirect = allocate_block()) == 0)
-				return -ENOSPC;
-			
-			allocated[0] = &(oi->oi_indirect); 
-			ospfs_zero_out_block(oi->oi_indirect); 
-		}  
-		
-		//get a pointer to the indirect block
-		if (oi->oi_direct == 0)
-			return -EIO; 
-				
-		uint32_t* ind_block_ptr = (uint32_t*) ospfs_block(oi->oi_indirect);
-		uint32_t direct = direct_index(n); 
-		
-		//allocate a direct block
-		if ((ind_block_ptr[direct] = allocate_block()) == 0)
-		{	
-			if (allocated[0])
-			{
-				free_block(*(allocated[0]));
-				*(allocated[0]) = 0; 
-			}
-			
-			return -ENOSPC; 
-		}
-		
-		ospfs_zero_out_block(ind_block_ptr[direct]); 
-	} 
-	
-	//case 3: place somewhere in doubly indirect block(3 allocations possible)  
-	else if (indir2_index(n) == 0) 
-	{
-		//if the new block will be the first direct block of the first indirect
-		//block, we must allocate the doubly indirect block 
-		if (indir_index(n) == 0 && direct_index(n) == 0)
-		{
-			if ((oi->oi_indirect2 = allocate_block()) == 0)
-				return -ENOSPC;
-			
-			ospfs_zero_out_block(oi->oi_indirect2);
-			allocated[0] = oi->oi_indirect2; 
-		}
-		
-		//generate a pointer to the double indirect block	
-		if (oi->oi_indirect2 == 0)
-			return -EIO; 	
-		uint32_t* double_block_ptr = (uint32_t*) ospfs_block(oi->oi_indirect2);
-		uint32_t ind = indir_index(n);
-		
-		//if the new direct block is going to be the first block in an indirect block
-		//we need to allocate a new indirect block first 
-		if (direct_index(n) == 0)
-		{  
-			if ((double_block_ptr[ind] = allocate_block()) == 0)
-			{ 
-				if(allocated[0])
-				{
-					free_block(*allocated[0]);
-					*allocated[0] = 0; 
-				}
-				
-				return -ENOSPC;
-			}
-			
-			ospfs_zero_out_block(double_block_ptr[ind]);
-			
-			//save allocated indirect block in case of future failure
-			allocated[1] = &double_block_ptr[ind]; 
-		}
-		
-		uint32_t ind_block = double_block_ptr[ind];
-		if (ind_block == 0)
-			return -EIO; 
-		uint32_t* ind_block_ptr = ospfs_block(ind_block);
-		uint32_t direct = direct_index(n); 
-		
-		//allocate direct block
-		if ((ind_block_ptr[direct] = allocate_block()) == 0)
-		{
-			if (allocated[0])
-			{
-				free_block(*(allocated[0]));
-				*(allocated[0]) = 0; 
-			}
-			if (allocated[1])
-			{
-				free_block(*(allocated[1])); 
-				*(allocated[1]) = 0; 
-			}
-			return -ENOSPC; 
-		}
-		
-		ospfs_zero_out_block(ind_block_ptr[direct]); 			
+		// Sanity check that there is no existing allocated block
+		if(oi->oi_direct[index_direct] != 0)
+			return -EIO;
+
+		if((allocated[0] = allocate_block()) == 0)
+			goto nospace;
+
+		memset(ospfs_block(allocated[0]), 0, OSPFS_BLKSIZE);
+		oi->oi_direct[index_direct] = allocated[0];
+		oi->oi_size = (n + 1) * OSPFS_BLKSIZE;
+		return 0;
 	}
-	 
-	//update inode size and return 0
-	oi -> oi_size += OSPFS_BLKSIZE; 
+
+	if(index_indir2 == 0) // If we need the double indirect block
+	{
+		if(oi->oi_indirect2 == 0) // and it is null, allocate it
+		{
+			if((allocated[INDIR_2_BLOCK] = allocate_block()) == 0)
+				goto nospace;
+
+			double_indir_block = allocated[INDIR_2_BLOCK];
+			double_indir_data = ospfs_block(double_indir_block);
+
+			memset(double_indir_data, 0, OSPFS_BLKSIZE);
+		}
+		else // otherwise use the existing double indirect block
+		{
+			double_indir_block = oi->oi_indirect2;
+			double_indir_data = ospfs_block(double_indir_block);
+		}
+
+		// Allocate the indirect block if needed
+		if(double_indir_data[index_indir] == 0)
+		{
+			if((allocated[INDIR_BLOCK] = allocate_block()) == 0)
+				goto nospace;
+
+			indir_block = allocated[INDIR_BLOCK];
+			indir_data = ospfs_block(indir_block);
+
+			memset(indir_data, 0, OSPFS_BLKSIZE);
+		}
+	}
+
+	// We only need a single indirect, so allocate it if necessary
+	else if(oi->oi_indirect == 0)
+	{
+		if((allocated[INDIR_BLOCK] = allocate_block()) == 0)
+			goto nospace;
+
+		indir_block = allocated[INDIR_BLOCK];
+		indir_data = ospfs_block(indir_block);
+
+		memset(indir_data, 0, OSPFS_BLKSIZE);
+	}
+
+	// Sanity check that there is no existing allocated block
+	if(indir_data[index_direct] != 0)
+	{
+		r = -EIO;
+		goto nospace;
+	}
+
+	// Allocate the actual block
+	if((indir_data[index_direct] = allocate_block()) == 0)
+		goto nospace;
+
+	memset(ospfs_block(indir_data[index_direct]), 0, OSPFS_BLKSIZE);
+
+	// Set all inode variables as necessary
+	oi->oi_size = (n + 1) * OSPFS_BLKSIZE;
+
+	if(index_indir2 == 0)
+	{
+		if(oi->oi_indirect2 == 0)
+			oi->oi_indirect2 = double_indir_block;
+
+		if(double_indir_data[index_indir] == 0)
+			double_indir_data[index_indir] = indir_block;
+	}
+	else if(oi->oi_indirect == 0)
+	{
+		oi->oi_indirect = indir_block;
+	}
+
 	return 0;
+
+	nospace:
+		if(allocated[INDIR_2_BLOCK] != 0)
+			free_block(allocated[INDIR_2_BLOCK]);
+
+		if(allocated[INDIR_BLOCK] != 0)
+			free_block(allocated[INDIR_BLOCK]);
+
+		return r;
 }
 
 
@@ -954,7 +950,8 @@ remove_block(ospfs_inode_t *oi)
 	}
 	//case 2. 
 	else if (ind2_i == -1)
-	{
+	{// EXERCISE: Write this function.
+
 		if (oi->oi_indirect == 0)
 			return -EIO; 
 		uint32_t* ind_ptr = (uint32_t*) ospfs_block(oi->oi_indirect); 
@@ -1056,16 +1053,31 @@ static int
 change_size(ospfs_inode_t *oi, uint32_t new_size)
 {
 	uint32_t old_size = oi->oi_size;
+	uint32_t final_size = (old_size > new_size ? new_size : old_size);
 	int r = 0;
 
-	while (r >= 0 && ospfs_size2nblocks(oi->oi_size) < ospfs_size2nblocks(new_size)) {
-        r = add_block(oi);
+	while (ospfs_size2nblocks(oi->oi_size) < ospfs_size2nblocks(new_size)) {
+		r = add_block(oi);
+
+		// If no space is left, reset the file back to the old size
+		// The second loop will take care of this if we modify new_size
+		if(r == -ENOSPC)
+		{
+			new_size = old_size;
+			break;
+		}
+
+		if(r == -EIO)
+			return -EIO;
 	}
-	while (r >= 0 && ospfs_size2nblocks(oi->oi_size) > ospfs_size2nblocks(new_size)) {
-        r = remove_block(oi);
+	while (ospfs_size2nblocks(oi->oi_size) > ospfs_size2nblocks(new_size)) {
+		if(remove_block(oi) == -EIO)
+			return -EIO;
 	}
-    oi->oi_size = 0 == r ? new_size : old_size;
-	return r; 
+
+	// Reset the size back to what it was if the file grew, or down to what it shrank to
+	oi->oi_size = final_size;
+	return r;
 }
 
 
@@ -1102,7 +1114,6 @@ ospfs_notify_change(struct dentry *dentry, struct iattr *attr)
 	return retval;
 }
 
-
 // ospfs_read
 //	Linux calls this function to read data from a file.
 //	It is the file_operations.read callback.
@@ -1127,59 +1138,46 @@ ospfs_read(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
 	ospfs_inode_t *oi = ospfs_inode(filp->f_dentry->d_inode->i_ino);
 	int retval = 0;
 	size_t amount = 0;
-    if (oi->oi_size < *f_pos + count)
-    {
-        count = oi->oi_size - *f_pos;
-    }
+
 	// Make sure we don't read past the end of the file!
 	// Change 'count' so we never read past the end of the file.
 	/* EXERCISE: Your code here */
-    
+    if(*f_pos >= oi->oi_size)  
+      count = 0;
+    else if(*f_pos + count >= oi->oi_size)
+      count = oi->oi_size - *f_pos;
+
 	// Copy the data to user block by block
 	while (amount < count && retval >= 0) {
 		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
+                uint32_t bytes_left = count - amount;
+                uint32_t offset;
 		char *data;
-        uint32_t data_offset;
-        uint32_t bytes_left_to_copy = count - amount;
+
 		// ospfs_inode_blockno returns 0 on error
 		if (blockno == 0) {
 			retval = -EIO;
-            eprintk("ospfs_inode_blockno returned error for %d", blockno);
 			goto done;
 		}
-
+               
+                //gets data from block 
 		data = ospfs_block(blockno);
 
-		// Figure out how much data is left in this block to read.
-		// Copy data into user space. Return -EFAULT if unable to write
-		// into user space.
-		// Use variable 'n' to track number of bytes moved.
-        data_offset = *f_pos % OSPFS_BLKSIZE; 
-        
-        n = OSPFS_BLKSIZE - data_offset; 
-        
-        // if we don't want to read the entire specified amount, set the amount
-        // to read to bytes_left_to_copy
-        if (n > bytes_left_to_copy)
-        {
-            n = bytes_left_to_copy; 
-        }
-        bytes_left_to_copy = copy_to_user(buffer, data, n);
-        // we could not copy ANY data into user space    
-        if (bytes_left_to_copy == n)
-        {
-            retval = -EFAULT;
-            eprintk("copy to user messed up");           
-            goto done;
-        }
-        buffer += n;
-        amount += n;
-        *f_pos += n;
+                offset = *f_pos % OSPFS_BLKSIZE;
+                n = OSPFS_BLKSIZE - offset;
+                if(n > bytes_left)
+                  n = bytes_left;
+                if(copy_to_user(buffer, data + offset, n) != 0){
+                  return -EFAULT;
+                }
+     
+		buffer += n;
+		amount += n;
+		*f_pos += n;
 	}
 
     done:
-    printk("read a ok");
 	return (retval >= 0 ? amount : retval);
 }
 
@@ -1207,31 +1205,34 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 	ospfs_inode_t *oi = ospfs_inode(filp->f_dentry->d_inode->i_ino);
 	int retval = 0;
 	size_t amount = 0;
+        uint32_t new_size = 0;
 
 	// Support files opened with the O_APPEND flag.  To detect O_APPEND,
 	// use struct file's f_flags field and the O_APPEND bit.
-	if (filp->f_flags & O_APPEND)
-    {
-        f_pos = filp->f_pos;
-    }
+	/* EXERCISE: Your code here */
+        if(filp->f_flags & O_APPEND)
+          *f_pos = oi->oi_size;                                               //****why not oi->size+1
 	// If the user is writing past the end of the file, change the file's
 	// size to accomodate the request.  (Use change_size().)
-	/* EXERCISE: Your code here */    
-    if ( oi-> oi_size < *f_pos + count)
-    {
-        change_size(oi, *f_pos + count);
-    }
-
+	/* EXERCISE: Your code here */
+        if(*f_pos + count >= oi->oi_size){
+          new_size = (ospfs_size2nblocks(oi->oi_size) + 1) * OSPFS_BLKSIZE;
+          retval = change_size(oi, new_size);
+          if(retval != 0)
+            return ERR_PTR(retval);
+          oi->oi_size = new_size; 
+        }
+            
 	// Copy data block by block
 	while (amount < count && retval >= 0) {
-        uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
+		uint32_t blockno = ospfs_inode_blockno(oi, *f_pos);
 		uint32_t n;
+                uint32_t bytes_left = count - amount;
+                uint32_t offset;
 		char *data;
-        uint32_t data_offset;
-        uint32_t bytes_left_to_copy = count - amount;
-		// ospfs_inode_blockno returns 0 on error
+
 		if (blockno == 0) {
-			retval = -EIO;
+	 		retval = -EIO;
 			goto done;
 		}
 
@@ -1242,27 +1243,14 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count, loff_t *
 		// read user space.
 		// Keep track of the number of bytes moved in 'n'.
 		/* EXERCISE: Your code here */
-        // Figure out how much data is left in this block to read.     
-        data_offset = *f_pos % OSPFS_BLKSIZE; 
-        
-        n = OSPFS_BLKSIZE - data_offset; 
-        
-        // if we don't want to read the entire specified amount, set the amount
-        // to read to bytes_left_to_copy
-        if (n > bytes_left_to_copy)
-        {
-            n = bytes_left_to_copy; 
-        }
-        bytes_left_to_copy = copy_from_user(data, buffer, n);
-        // we could not copy ANY data into user space    
-        if (bytes_left_to_copy == n)
-        {
-            retval = -EFAULT;
-            goto done;
-        }
-        buffer += n;
-        amount += n;
-        *f_pos += n;
+                offset = *f_pos % OSPFS_BLKSIZE;
+                n = OSPFS_BLKSIZE - offset;
+                if(n > bytes_left){
+                  n = bytes_left;
+                }
+
+                if(copy_from_user(data + offset, buffer, n) != 0)
+                  return -EFAULT;
 
 		buffer += n;
 		amount += n;
@@ -1477,7 +1465,7 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidat
 	{
 		return -ENAMETOOLONG;
 	} 
-	if (find_dir_entry(dir_oi, dentry->d_name.name, dentry->d_name.len) != NULL)
+	if (find_direntry(dir_oi, dentry->d_name.name, dentry->d_name.len) != NULL)
 	{
 		return -EEXIST;
 	}
@@ -1561,7 +1549,7 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	{
 		return -ENAMETOOLONG;
 	} 
-	if (find_dir_entry(dir_oi, dentry->d_name.name, dentry->d_name.len) != NULL)
+	if (find_direntry(dir_oi, dentry->d_name.name, dentry->d_name.len) != NULL)
 	{
 		return -EEXIST;
 	}
@@ -1704,3 +1692,4 @@ module_exit(exit_ospfs_fs)
 MODULE_AUTHOR("Skeletor");
 MODULE_DESCRIPTION("OSPFS");
 MODULE_LICENSE("GPL");
+
