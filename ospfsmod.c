@@ -166,16 +166,6 @@ ospfs_block(uint32_t blockno)
 	return &ospfs_data[blockno * OSPFS_BLKSIZE];
 }
 
-// ospfs_zero_out_block(blockno)
-// Zeroes out the ospfs block pointed to by blockno
-// Input: blockno -- block number
-
-static void 
-ospfs_zero_out_block(uint32_t blockno)
-{
-	memset(ospfs_block(blockno),0,OSPFS_BLKSIZE);
-}
-
 // ospfs_inode(ino)
 //	Use this function to load a 'ospfs_inode' structure from "disk".
 //
@@ -576,9 +566,10 @@ ospfs_unlink(struct inode *dirino, struct dentry *dentry)
 		printk("<1>ospfs_unlink should not fail!\n");
 		return -ENOENT;
 	}
+
 	if (oi->oi_ftype != OSPFS_FTYPE_SYMLINK)
 		change_size(oi,0);
-	
+
 	od->od_ino = 0;
 	oi->oi_nlink--;
 	return 0;
@@ -1610,7 +1601,6 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 //     root?/path/1:/path/2.
 //   (hint: Should the given form be changed in any way to make this method
 //   easier?  With which character do most functions expect C strings to end?)
-
 static void *
 ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
@@ -1619,18 +1609,35 @@ ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 		(ospfs_symlink_inode_t *) ospfs_inode(dentry->d_inode->i_ino);
 
     char * symlnk_dst = symlnk_oi->oi_symlink;
-    
+
     if (symlnk_oi->oi_ftype != OSPFS_FTYPE_SYMLINK)
     {
         return (void *)-EIO;
     }
-    // check if it is a conditional symlnk
-    if ('?' == symlnk_dst[0])
-    {
-        size_t len_true_case = strlen(symlnk_dst) + 1;        
-        symlnk_dst += current->uid == 0 ? 1 : len_true_case;
-        //eprintk("Symlink dst %s\n", symlnk_dst);
-    }
+
+ 	//check if conditional symlink
+ 	char* colon_pos = strchr(symlnk_dst,':');
+ 	if (colon_pos != 0)
+ 	{
+ 		//if user is root, pass the first part of the symlink
+ 		if(!current->uid)
+ 		{
+ 			//copy the first conditional and assign to symlnk_dst
+ 			uint32_t first_len = colon_pos - (symlnk_dst+5); 
+ 			char* first_path = kmalloc(sizeof(char)*(strlen(symlnk_dst)),0);
+ 			strncpy(first_path,symlnk_dst+5,first_len);
+ 			first_path[first_len]='\0';
+ 			symlnk_dst = first_path; 
+ 		}
+
+ 		//otherwise, use the second part(after the colon)
+ 		else
+ 		{
+ 			symlnk_dst = colon_pos + 1; 
+ 			nd_set_link(nd,symlnk_dst);
+ 		}   
+ 	}
+	
 	nd_set_link(nd, symlnk_dst);
 	return (void *) 0;
 }
