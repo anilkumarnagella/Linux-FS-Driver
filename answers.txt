@@ -1,26 +1,18 @@
-# Fill in your name, student ID, and email address in this file.
-# If you are working in a team, fill out the information for both team 
-# members.
-
-# SUBMIT THE LAB ONLY ONCE (from only one partner). This file will be
-# automatically parsed in order to give both team members credit for the
-# lab.
-
-# If you did one or more extra credit problems, indicate which one in the
-# appropriate section below (remove the # sign first). If you have any other
-# information you'd like us to know, please add it at the end of the file.
+# CS111 Lab 3: OSPFS Driver
 
 # Partner 1
-Name: 
+Name: Michael Sweatt	
 Student ID: 
 Email: 
 
-# Partner 2 (if you're working in a team)
-Name: 
-Student ID: 
-Email: 
+# Partner 2 
+Name: Steven Collison
+Student ID: 504073349
+Email: stevendonv@gmail.com
 
 # Extra credit problems
 #Extra credit problem: none
 
 # Add any other information you'd like us to know below this line.
+-Had to use kmalloc to properly implement following conditional symlinks in  
+ follow_links()
