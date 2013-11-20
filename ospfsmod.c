@@ -576,7 +576,9 @@ ospfs_unlink(struct inode *dirino, struct dentry *dentry)
 		printk("<1>ospfs_unlink should not fail!\n");
 		return -ENOENT;
 	}
-
+	if (oi->oi_ftype != OSPFS_FTYPE_SYMLINK)
+		change_size(oi,0);
+	
 	od->od_ino = 0;
 	oi->oi_nlink--;
 	return 0;
@@ -1276,7 +1278,7 @@ find_direntry(ospfs_inode_t *dir_oi, const char *name, int namelen)
 		ospfs_direntry_t *od = ospfs_inode_data(dir_oi, off);
 		if (od->od_ino
 		    && strlen(od->od_name) == namelen
-		    && memcmp(od->./od_name, name, namelen) == 0)
+		    && memcmp(od->od_name, name, namelen) == 0)
 			return od;
 	}
 	return 0;
@@ -1629,7 +1631,7 @@ ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
         symlnk_dst += current->uid == 0 ? 1 : len_true_case;
         //eprintk("Symlink dst %s\n", symlnk_dst);
     }
-	nd_set_link(nd, symlnk_oi->symlnk_dst);
+	nd_set_link(nd, symlnk_dst);
 	return (void *) 0;
 }
 
